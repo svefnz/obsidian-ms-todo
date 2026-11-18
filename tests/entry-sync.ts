@@ -1,2 +1,2 @@
 export * from "../src/sync";
-export { TFile } from "obsidian";
+export { TFile, TFolder } from "obsidian";

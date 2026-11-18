@@ -173,6 +173,28 @@ assert.strictEqual(ghost.moved, 0);
 assert.deepStrictEqual(ghost.missing, ["不存在/工作.md"]);
 assert.deepStrictEqual(settings.mappings, { L1: "不存在/工作.md" }, "mapping untouched when file is gone");
 
+// 3i) 关闭清单同步时立刻删除笔记（进系统废纸篓）并清掉映射
+settings.mappings = { L1: "Microsoft To Do/工作.md" };
+vault.files.set("Microsoft To Do/工作.md", "# 工作\n");
+let trashed = null;
+vault.trash = async (f) => {
+	trashed = f.path;
+	vault.files.delete(f.path);
+};
+const gonePath = await engine.removeListNote("L1");
+assert.strictEqual(gonePath, "Microsoft To Do/工作.md", "returns deleted path");
+assert.strictEqual(trashed, "Microsoft To Do/工作.md", "goes through system trash");
+assert.ok(!vault.files.has("Microsoft To Do/工作.md"), "note file gone");
+assert.deepStrictEqual(settings.mappings, {}, "mapping dropped");
+assert.strictEqual(await engine.removeListNote("NOPE"), null, "unknown list is a no-op");
+
+// 无 vault.trash 的宿主上退回直接删除
+delete vault.trash;
+settings.mappings = { L2: "Microsoft To Do/买菜-清单.md" };
+vault.files.set("Microsoft To Do/买菜-清单.md", "# 买菜\n");
+await engine.removeListNote("L2");
+assert.ok(!vault.files.has("Microsoft To Do/买菜-清单.md"), "fallback hard delete");
+
 settings.mappings = {};
 settings.syncFolder = "Microsoft To Do";
 

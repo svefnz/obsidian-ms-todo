@@ -45,7 +45,7 @@ export class MSTodoSettingTab extends PluginSettingTab {
 			return;
 		}
 
-		const head = new Setting(el).setName("清单").setDesc("勾选后参与同步，取消勾选会停止同步但保留已生成的笔记。");
+		const head = new Setting(el).setName("清单").setDesc("勾选后参与同步；取消勾选会立刻删除该清单的笔记（移入系统废纸篓，可找回）。");
 		head.addButton((b) =>
 			b.setButtonText("刷新清单").onClick(async () => {
 				this.plugin.listsCache = null;
@@ -67,6 +67,22 @@ export class MSTodoSettingTab extends PluginSettingTab {
 						else disabled.add(list.id);
 						this.plugin.settings.disabledListIds = [...disabled];
 						await this.plugin.saveSettings();
+						if (v) {
+							const path = this.plugin.settings.mappings[list.id];
+							if (path) new Notice(`「${list.displayName}」已重新开启同步，下次同步会更新 ${path}。`);
+						} else {
+							try {
+								const gone = await this.plugin.sync.removeListNote(list.id);
+								new Notice(
+									gone
+										? `已停止同步「${list.displayName}」，笔记 ${gone} 已移入废纸篓。`
+										: `已停止同步「${list.displayName}」（它还没有笔记）。`
+								);
+								this.display(); // 路径描述要清掉
+							} catch (e) {
+								new Notice(`删除笔记失败：${(e as Error).message}`, 10000);
+							}
+						}
 					})
 				);
 		}

@@ -97,6 +97,21 @@ export class SyncEngine {
 		return { moved, missing };
 	}
 
+	/** 关闭某个清单的同步时，立刻删除它的笔记（进系统废纸篓，可从废纸篓找回） */
+	async removeListNote(listId: string): Promise<string | null> {
+		const path = this.settings.mappings[listId];
+		if (!path) return null;
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (file instanceof TFile) {
+			const trash = (this.app.vault as unknown as { trash?: (f: TFile, sys: boolean) => Promise<void> }).trash;
+			if (typeof trash === "function") await trash.call(this.app.vault, file, true);
+			else await this.app.vault.delete(file); // 老版本/无系统废纸篓时直接删除
+		}
+		delete this.settings.mappings[listId];
+		await this.save();
+		return path;
+	}
+
 	/** 目标已存在同名文件时另起名字，绝不覆盖 */
 	private freeName(target: string): string {
 		if (!this.app.vault.getAbstractFileByPath(target)) return target;
