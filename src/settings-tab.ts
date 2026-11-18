@@ -12,6 +12,17 @@ export class MSTodoSettingTab extends PluginSettingTab {
 		super(app, plugin);
 	}
 
+	private migrateTimer: number | null = null;
+
+	private async runMigration(): Promise<void> {
+		try {
+			const moved = await this.plugin.migrateSyncFolder(this.plugin.settings.syncFolder);
+			if (moved > 0) this.display(); // 路径变了，重绘清单列表
+		} catch (e) {
+			new Notice(`迁移笔记失败：${(e as Error).message}`, 10000);
+		}
+	}
+
 	/** 账号下所有清单 + 勾选同步 / 取消同步 */
 	private async renderLists(el: HTMLElement): Promise<void> {
 		el.empty();
@@ -147,17 +158,14 @@ export class MSTodoSettingTab extends PluginSettingTab {
 					.setPlaceholder("Microsoft To Do")
 					.setValue(this.plugin.settings.syncFolder)
 					.onChange(async (v) => {
-						const from = this.plugin.settings.syncFolder;
-						const to = v.trim() || "Microsoft To Do";
-						if (from === to) return;
-						this.plugin.settings.syncFolder = to;
+						this.plugin.settings.syncFolder = v.trim() || "Microsoft To Do";
 						await this.plugin.saveSettings();
-						try {
-							await this.plugin.migrateSyncFolder(from, to);
-							this.display(); // 路径变了，重绘清单列表
-						} catch (e) {
-							new Notice(`迁移笔记失败：${(e as Error).message}`, 10000);
-						}
+						// 输入过程中每个字符都会触发，等停止输入再迁移一次
+						if (this.migrateTimer !== null) window.clearTimeout(this.migrateTimer);
+						this.migrateTimer = window.setTimeout(() => {
+							this.migrateTimer = null;
+							void this.runMigration();
+						}, 800);
 					})
 			);
 

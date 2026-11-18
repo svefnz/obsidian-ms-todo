@@ -27,6 +27,7 @@ export default class MSTodoPlugin extends Plugin {
 		});
 		this.graph = new GraphClient(() => this.auth.getToken());
 		this.sync = new SyncEngine(this.app, this.graph, this.settings, () => this.saveSettings());
+		this.syncFolderBaseline = this.settings.syncFolder;
 
 		this.addCommand({ id: "sign-in", name: "登录 Microsoft To Do", callback: () => void this.signIn() });
 		this.addCommand({
@@ -150,9 +151,15 @@ export default class MSTodoPlugin extends Plugin {
 		return this.listsCache;
 	}
 
+	/** 笔记当前实际所在的文件夹（改设置时以它为迁移起点） */
+	syncFolderBaseline = "";
+
 	/** 同步文件夹改名后迁移已同步的笔记（旧文件随重命名消失，空文件夹删除） */
-	async migrateSyncFolder(from: string, to: string): Promise<number> {
+	async migrateSyncFolder(to: string): Promise<number> {
+		const from = this.syncFolderBaseline || this.settings.syncFolder;
+		if (from === to) return 0;
 		const moved = await this.sync.migrateFolder(from, to);
+		this.syncFolderBaseline = to;
 		if (moved > 0) new Notice(`已迁移 ${moved} 篇笔记到「${to}」，旧路径已删除。`);
 		return moved;
 	}
