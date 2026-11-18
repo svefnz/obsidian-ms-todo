@@ -1,5 +1,5 @@
 import { Plugin, Notice, TFile, Editor } from "obsidian";
-import { AuthManager, buildAuthorizeUrl, exchangeCode, pkce, REDIRECT_URI } from "./auth";
+import { AuthManager, buildAuthorizeUrl, exchangeCode, pkce, waitForCallback, REDIRECT_URI } from "./auth";
 import { GraphClient } from "./graph";
 import { MSTodoSettingTab } from "./settings-tab";
 import { DEFAULT_SETTINGS, type MSTodoSettings } from "./settings";
@@ -7,15 +7,12 @@ import { SyncEngine } from "./sync";
 import { parseLine } from "./markdown";
 import type { TodoList } from "./types";
 
-const AUTH_PROTOCOL = "ms-todo-auth";
-
 export default class MSTodoPlugin extends Plugin {
 	settings: MSTodoSettings = { ...DEFAULT_SETTINGS };
 	auth!: AuthManager;
 	graph!: GraphClient;
 	sync!: SyncEngine;
 	private autoTimer: number | null = null;
-	private pendingAuth: { verifier: string; resolve: (r: string) => void; reject: (e: Error) => void } | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -28,33 +25,6 @@ export default class MSTodoPlugin extends Plugin {
 		});
 		this.graph = new GraphClient(() => this.auth.getToken());
 		this.sync = new SyncEngine(this.app, this.graph, this.settings);
-
-		// OAuth callback handler
-		this.registerObsidianProtocolHandler(AUTH_PROTOCOL, async (params) => {
-			if (!this.pendingAuth) return;
-			const { verifier, resolve, reject } = this.pendingAuth;
-			this.pendingAuth = null;
-			if (params.error) {
-				reject(new Error(`登录失败：${params.error} ${params.error_description ?? ""}`));
-				return;
-			}
-			try {
-				const token = await exchangeCode(this.settings.clientId, params.code, verifier);
-				this.settings.refreshToken = token.refresh_token;
-				this.settings.accessToken = token.access_token;
-				this.settings.tokenExpiry = Date.now() + token.expires_in * 1000;
-				await this.saveSettings();
-				this.auth.updateSettings({
-					clientId: this.settings.clientId,
-					refreshToken: this.settings.refreshToken,
-					accessToken: this.settings.accessToken,
-					tokenExpiry: this.settings.tokenExpiry,
-				});
-				resolve(token.access_token);
-			} catch (e) {
-				reject(e as Error);
-			}
-		});
 
 		this.addCommand({ id: "sign-in", name: "登录 Microsoft To Do", callback: () => void this.signIn() });
 		this.addCommand({
@@ -119,19 +89,28 @@ export default class MSTodoPlugin extends Plugin {
 		}
 		const { verifier, challenge } = await pkce();
 		const url = buildAuthorizeUrl(this.settings.clientId, challenge);
+		// 先启动本地回调服务，再打开浏览器，避免竞态
+		const callback = waitForCallback();
 		window.open(url, "_blank");
-		new Notice("请在浏览器中完成 Microsoft 账号登录…");
-		const code = await new Promise<string>((resolve, reject) => {
-			this.pendingAuth = { verifier, resolve, reject };
-			// Expire after 5 minutes
-			window.setTimeout(() => {
-				if (this.pendingAuth) {
-					this.pendingAuth = null;
-					reject(new Error("登录超时。"));
-				}
-			}, 5 * 60000);
-		});
-		new Notice("已登录 Microsoft To Do。");
+		new Notice("请在浏览器中完成 Microsoft 账号登录…", 8000);
+		try {
+			const { code, error } = await callback;
+			if (!code) throw new Error(`登录失败：${error ?? "未获得授权码"}`);
+			const token = await exchangeCode(this.settings.clientId, code, verifier);
+			this.settings.refreshToken = token.refresh_token;
+			this.settings.accessToken = token.access_token;
+			this.settings.tokenExpiry = Date.now() + token.expires_in * 1000;
+			await this.saveSettings();
+			this.auth.updateSettings({
+				clientId: this.settings.clientId,
+				refreshToken: this.settings.refreshToken,
+				accessToken: this.settings.accessToken,
+				tokenExpiry: this.settings.tokenExpiry,
+			});
+			new Notice("已登录 Microsoft To Do。");
+		} catch (e) {
+			new Notice(`登录失败：${(e as Error).message}`, 12000);
+		}
 	}
 
 	async runSyncAll() {

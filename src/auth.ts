@@ -16,13 +16,13 @@ export interface AuthSettings {
 const AUTHORITY = "https://login.microsoftonline.com/common/oauth2/v2.0";
 const SCOPES = "Tasks.ReadWrite offline_access User.Read";
 
-const REDIRECT_URI = "https://localhost/ms-todo-auth";
+/** 本地回环端口：Azure 对 http://localhost 的重定向 URI 会忽略端口差异 */
+const LOOPBACK_PORT = 42813;
+const REDIRECT_URI = `http://localhost:${LOOPBACK_PORT}/ms-todo-auth`;
 
 /**
- * OAuth 2.0 authorization code + PKCE flow for Microsoft Graph.
- * Because Obsidian is a desktop app, we use the loopback-style redirect trick
- * via Obsidian's `registerObsidianProtocolHandler` with the "ms-todo-auth"
- * protocol. The code is exchanged against the v2.0 token endpoint.
+ * OAuth 2.0 授权码 + PKCE 流程。
+ * Obsidian 桌面端使用本地回环 HTTP 服务接收授权码（RFC 8252 推荐方式）。
  */
 export class AuthManager {
 	constructor(private settings: AuthSettings) {}
@@ -56,7 +56,7 @@ export class AuthManager {
 			scope: SCOPES,
 		});
 		const res = await requestUrl({
-			url: `${AUTHORITY}/oauth2/v2.0/token`,
+			url: `${AUTHORITY}/token`,
 			method: "POST",
 			contentType: "application/x-www-form-urlencoded",
 			body: body.toString(),
@@ -91,7 +91,7 @@ export function buildAuthorizeUrl(clientId: string, challenge: string): string {
 		code_challenge_method: "S256",
 		prompt: "select_account",
 	});
-	return `${AUTHORITY}/oauth2/v2.0/authorize?${p.toString()}`;
+	return `${AUTHORITY}/authorize?${p.toString()}`;
 }
 
 export async function exchangeCode(clientId: string, code: string, verifier: string): Promise<TokenResult> {
@@ -104,7 +104,7 @@ export async function exchangeCode(clientId: string, code: string, verifier: str
 		scope: SCOPES,
 	});
 	const res = await requestUrl({
-		url: `${AUTHORITY}/oauth2/v2.0/token`,
+		url: `${AUTHORITY}/token`,
 		method: "POST",
 		contentType: "application/x-www-form-urlencoded",
 		body: body.toString(),
@@ -116,4 +116,50 @@ export async function exchangeCode(clientId: string, code: string, verifier: str
 	return res.json as TokenResult;
 }
 
-export { REDIRECT_URI };
+/**
+ * 启动一次性本地回调服务，等待 Microsoft 重定向带回授权码。
+ * 收到后立即关闭服务器。
+ */
+export function waitForCallback(timeoutMs = 5 * 60 * 1000): Promise<{ code?: string; error?: string }> {
+	// obsidian 桌面端可用 Node 内置模块
+	// eslint-disable-next-line @typescript-eslint/no-var-requires
+	const http = require("http") as typeof import("http");
+	return new Promise((resolve, reject) => {
+		const server = http.createServer((req, res) => {
+			const url = new URL(req.url ?? "/", `http://localhost:${LOOPBACK_PORT}`);
+			if (url.pathname !== "/ms-todo-auth") {
+				res.writeHead(404).end();
+				return;
+			}
+			const code = url.searchParams.get("code") ?? undefined;
+			const error = url.searchParams.get("error") ?? undefined;
+			const desc = url.searchParams.get("error_description") ?? "";
+			res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(
+				`<!doctype html><meta charset="utf-8"><title>Microsoft To Do 同步</title>
+				 <body style="font-family:system-ui;padding:3rem;text-align:center">
+				 <h2>${code ? "授权成功 ✅" : "授权失败 ❌"}</h2>
+				 <p>${code ? "可以关闭此页面，回到 Obsidian 继续。" : `${error} ${desc}`}</p></body>`
+			);
+			finish();
+			resolve({ code, error: code ? undefined : error ?? "unknown" });
+		});
+		const timer = setTimeout(() => {
+			finish();
+			reject(new Error("登录超时（5 分钟）。"));
+		}, timeoutMs);
+		let closed = false;
+		const finish = () => {
+			if (closed) return;
+			closed = true;
+			clearTimeout(timer);
+			server.close();
+		};
+		server.on("error", (e) => {
+			finish();
+			reject(new Error(`本地回调服务启动失败：${(e as Error).message}`));
+		});
+		server.listen(LOOPBACK_PORT, "127.0.0.1");
+	});
+}
+
+export { REDIRECT_URI, LOOPBACK_PORT };

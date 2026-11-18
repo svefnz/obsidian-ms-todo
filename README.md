@@ -16,7 +16,7 @@
 1. 打开 [Azure 门户 → 应用注册](https://portal.azure.com/#blade/Microsoft_Azure_RegisteredApps/ApplicationsListBlade) 新建应用：
    - 受支持的账户类型：个人 Microsoft 账户和/或工作/学校账户
    - 不需要客户端密钥（公共客户端）
-   - 在「身份验证」中添加 **移动和桌面应用程序** 平台，重定向 URI 填 `https://localhost/ms-todo-auth`
+   - 在「身份验证」中添加 **移动和桌面应用程序** 平台，重定向 URI 填 `http://localhost:42813/ms-todo-auth`
    - 添加委托权限：`Tasks.ReadWrite`、`offline_access`、`User.Read`
 2. 复制 **应用程序(客户端) ID** 填入插件设置
 3. 执行命令 **「登录 Microsoft To Do」**，在浏览器中完成登录

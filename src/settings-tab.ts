@@ -21,7 +21,7 @@ export class MSTodoSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Azure 应用注册")
 			.setDesc(
-				"① 点击右侧按钮打开 Azure 门户 → ② 新建应用注册（无需客户端密钥）→ ③ 在“身份验证”中添加移动/桌面平台，重定向 URI 填 https://localhost/ms-todo-auth → ④ 复制“应用程序(客户端) ID”粘贴到下方"
+				"① 点击右侧按钮打开 Azure 门户 → ② 新建应用注册（无需客户端密钥）→ ③ 在“身份验证”中添加平台「移动和桌面应用程序」，重定向 URI 填 http://localhost:42813/ms-todo-auth → ④ 复制“应用程序(客户端) ID”粘贴到下方"
 			)
 			.addButton((b) =>
 				b
