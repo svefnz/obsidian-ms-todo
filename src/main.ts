@@ -4,7 +4,7 @@ import { GraphClient } from "./graph";
 import { MSTodoSettingTab } from "./settings-tab";
 import { DEFAULT_SETTINGS, type MSTodoSettings } from "./settings";
 import { SyncEngine } from "./sync";
-import { parseLine } from "./markdown";
+import { parseLine, taskToLine } from "./markdown";
 import type { TodoList } from "./types";
 
 export default class MSTodoPlugin extends Plugin {
@@ -25,7 +25,7 @@ export default class MSTodoPlugin extends Plugin {
 			tokenExpiry: this.settings.tokenExpiry,
 		});
 		this.graph = new GraphClient(() => this.auth.getToken());
-		this.sync = new SyncEngine(this.app, this.graph, this.settings);
+		this.sync = new SyncEngine(this.app, this.graph, this.settings, () => this.saveSettings());
 
 		this.addCommand({ id: "sign-in", name: "登录 Microsoft To Do", callback: () => void this.signIn() });
 		this.addCommand({
@@ -193,22 +193,27 @@ export default class MSTodoPlugin extends Plugin {
 		}
 		this.lastEditSnapshot.set(file.path, content);
 
-		const before = new Set(
-			snapshot.split("\n").map((l) => parseLine(l)?.title).filter(Boolean) as string[]
-		);
 		const beforeLines = snapshot.split("\n");
-		for (const line of content.split("\n")) {
-			const parsed = parseLine(line);
-			if (!parsed || parsed.done) continue;
-			const beforeIdx = beforeLines.findIndex((l) => {
-				const p = parseLine(l);
-				return p && p.title === parsed.title;
-			});
-			if (beforeIdx === -1 && !before.has(parsed.title)) {
-				// Brand-new unchecked line: push to To Do.
-				void this.sync.pushNewLine(file, listId, parsed.title).catch(() => undefined);
-				return; // one per change event is plenty
-			}
+		const nowLines = content.split("\n");
+
+		// 勾选状态变化 -> 回写 To Do（只对带 block id 的行可靠）
+		for (let i = 0; i < Math.min(beforeLines.length, nowLines.length); i++) {
+			const b = parseLine(beforeLines[i]);
+			const n = parseLine(nowLines[i]);
+			if (!b || !n || !n.taskId || b.done === n.done) continue;
+			void this.sync.pushToggle(file, listId, n.taskId, n.done).catch(() => undefined);
+		}
+
+		// 新出现的未勾选行 -> 建成 To Do 任务，并把 block id 写回该行
+		const beforeTitles = new Set(
+			beforeLines.map((l) => parseLine(l)?.title).filter((t): t is string => Boolean(t))
+		);
+		for (let i = 0; i < nowLines.length; i++) {
+			const parsed = parseLine(nowLines[i]);
+			if (!parsed || parsed.done || parsed.taskId || beforeTitles.has(parsed.title)) continue;
+			const task = await this.sync.pushNewLine(file, listId, parsed.title).catch(() => null);
+			if (task) editor.setLine(i, taskToLine(task, parsed.indent));
+			return; // one per change event is plenty
 		}
 	}
 }

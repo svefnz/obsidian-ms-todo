@@ -1,7 +1,7 @@
 {
   "id": "ms-todo-sync",
   "name": "Microsoft To Do 同步",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "minAppVersion": "0.15.0",
   "description": "在 Obsidian 笔记与 Microsoft To Do 之间双向同步待办任务。",
   "author": "svefnz",

@@ -88,6 +88,19 @@ export class MSTodoSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("同步文件夹")
+			.setDesc("执行“同步全部清单”时，为尚未映射的清单自动创建笔记的位置。")
+			.addText((t) =>
+				t
+					.setPlaceholder("Microsoft To Do")
+					.setValue(this.plugin.settings.syncFolder)
+					.onChange(async (v) => {
+						this.plugin.settings.syncFolder = v.trim() || "Microsoft To Do";
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
 			.setName("隐藏已完成任务")
 			.setDesc("同步时忽略在 Microsoft To Do 中已完成的任务。")
 			.addToggle((t) =>

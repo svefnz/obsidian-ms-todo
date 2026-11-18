@@ -30,15 +30,18 @@ const task = {
 	body: { content: "from store", contentType: "text" },
 };
 const line = taskToLine(task);
-assert.strictEqual(line, "- [ ] Buy milk 📅 2026-11-20 💭 from store", "unchecked line");
+assert.strictEqual(line, "- [ ] Buy milk 📅 2026-11-20 💭 from store ^ms-todo-abc12345-1234", "unchecked line with block id");
+assert.strictEqual(taskToLine(task, "", false), "- [ ] Buy milk 📅 2026-11-20 💭 from store", "id can be omitted");
 const parsed = parseLine(line);
-assert.deepStrictEqual(parsed, { title: "Buy milk", done: false, indent: "" }, "parse unchecked");
+assert.deepStrictEqual(parsed, { title: "Buy milk", done: false, indent: "", taskId: "abc12345-1234" }, "parse unchecked + id");
+assert.strictEqual(parseLine("- [ ] no id line").taskId, undefined, "line without id");
 
 const doneTask = { ...task, status: "completed" };
 const doneLine = taskToLine(doneTask);
-assert.strictEqual(doneLine, "- [x] Buy milk 📅 2026-11-20 💭 from store", "checked line");
+assert.strictEqual(doneLine, "- [x] Buy milk 📅 2026-11-20 💭 from store ^ms-todo-abc12345-1234", "checked line");
 const parsedDone = parseLine(doneLine);
 assert.strictEqual(parsedDone.done, true, "parse checked");
+assert.strictEqual(parsedDone.title, "Buy milk", "id stripped from title");
 
 // indented line keeps indent
 const ind = taskToLine(task, "\t");

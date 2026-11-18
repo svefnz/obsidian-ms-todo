@@ -17,12 +17,14 @@ export class SyncEngine {
 	constructor(
 		private app: App,
 		private graph: GraphClient,
-		private settings: MSTodoSettings
+		private settings: MSTodoSettings,
+		private save: () => Promise<void> = async () => {}
 	) {}
 
 	async syncListToListingNote(list: TodoList, notePath: string): Promise<void> {
 		let file = this.app.vault.getAbstractFileByPath(notePath);
 		if (!(file instanceof TFile)) {
+			await this.ensureFolder(notePath);
 			const created = await this.app.vault.create(notePath, `# ${list.displayName}\n\n`);
 			file = created;
 		}
@@ -30,18 +32,51 @@ export class SyncEngine {
 		await this.applySync(file as TFile, tasks, list);
 	}
 
-	/** Sync all configured mappings. */
+	/**
+	 * Sync every list in the account. Lists without a mapping get a note in
+	 * `settings.syncFolder` and the mapping is persisted, so "同步全部清单"
+	 * works on a fresh install without manual configuration.
+	 */
 	async syncAll(): Promise<string> {
 		const lists = await this.graph.getLists();
-		const byId = new Map(lists.map((l) => [l.id, l]));
+		if (lists.length === 0) return "Microsoft To Do 中没有清单。";
+		const used = new Set(Object.values(this.settings.mappings));
+		let changed = false;
 		let synced = 0;
-		for (const [listId, notePath] of Object.entries(this.settings.mappings)) {
-			const list = byId.get(listId);
-			if (!list) continue;
+		for (const list of lists) {
+			let notePath = this.settings.mappings[list.id];
+			if (!notePath) {
+				notePath = this.uniquePath(list.displayName, used);
+				used.add(notePath);
+				this.settings.mappings[list.id] = notePath;
+				changed = true;
+			}
 			await this.syncListToListingNote(list, notePath);
 			synced++;
 		}
+		if (changed) await this.save();
 		return `已同步 ${synced} 个清单。`;
+	}
+
+	private uniquePath(listName: string, used: Set<string>): string {
+		const folder = (this.settings.syncFolder || "Microsoft To Do").replace(/\/+$/, "");
+		const base = `${folder}/${safeFileName(listName)}`;
+		let path = `${base}.md`;
+		let n = 2;
+		while (used.has(path) || this.app.vault.getAbstractFileByPath(path)) {
+			path = `${base} ${n++}.md`;
+		}
+		return path;
+	}
+
+	private async ensureFolder(notePath: string): Promise<void> {
+		const dir = notePath.split("/").slice(0, -1).join("/");
+		if (!dir || this.app.vault.getAbstractFileByPath(dir)) return;
+		try {
+			await this.app.vault.createFolder(dir);
+		} catch {
+			/* 并发创建或已存在 */
+		}
 	}
 
 	private async applySync(file: TFile, tasks: TodoTask[], list: TodoList): Promise<void> {
@@ -55,16 +90,16 @@ export class SyncEngine {
 		const matchedTaskIds = new Set<string>();
 		const noteTitles = new Set<string>();
 
-		// Pass 1: update existing lines (matched by ^ms-todo-<id> block id)
+		// Pass 1: update existing lines (matched by ^ms-todo-<id> block id),
+		// and remember every title already present so pass 2 can't duplicate.
 		const newLines: string[] = [];
 		for (const line of lines) {
-			const idMatch = /\^ms-todo-([0-9a-fA-F-]{8,})\s*$/.exec(line);
-			if (idMatch && taskById.has(idMatch[1])) {
-				const task = taskById.get(idMatch[1])!;
+			const parsed = parseLine(line);
+			if (parsed) noteTitles.add(parsed.title);
+			if (parsed?.taskId && taskById.has(parsed.taskId)) {
+				const task = taskById.get(parsed.taskId)!;
 				matchedTaskIds.add(task.id);
-				newLines.push(this.renderTaskLine(line, task));
-				const parsed = parseLine(line);
-				if (parsed) noteTitles.add(parsed.title);
+				newLines.push(taskToLine(task, parsed.indent));
 				continue;
 			}
 			newLines.push(line);
@@ -78,12 +113,6 @@ export class SyncEngine {
 		}
 
 		await this.app.vault.modify(file, newLines.join("\n"));
-	}
-
-	private renderTaskLine(oldLine: string, task: TodoTask): string {
-		const parsed = parseLine(oldLine);
-		const indent = parsed?.indent ?? "";
-		return taskToLine(task, indent);
 	}
 
 	/** Push a single checkbox toggle from the note to To Do. */
@@ -106,4 +135,10 @@ export class SyncEngine {
 		const task = await this.graph.createTask(listId, { title });
 		return task;
 	}
+}
+
+/** 清单名里不能出现在文件名中的字符替换掉 */
+export function safeFileName(name: string): string {
+	const cleaned = name.replace(/[\\/:*?"<>|#^[\]]/g, "-").replace(/\s+/g, " ").trim();
+	return cleaned || "未命名清单";
 }
