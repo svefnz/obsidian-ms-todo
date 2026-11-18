@@ -41,7 +41,7 @@ export class SyncEngine {
 			await this.syncListToListingNote(list, notePath);
 			synced++;
 		}
-		return `Synced ${synced} list(s).`;
+		return `已同步 ${synced} 个清单。`;
 	}
 
 	private async applySync(file: TFile, tasks: TodoTask[], list: TodoList): Promise<void> {
@@ -96,7 +96,7 @@ export class SyncEngine {
 		} else {
 			await this.graph.updateTask(listId, taskId, { status: "notStarted", completedDateTime: null as never });
 		}
-		new Notice(`To Do task ${done ? "completed" : "reopened"}.`);
+		new Notice(`任务已${done ? "标记完成" : "重新打开"}。`);
 	}
 
 	/** Create a To Do task from a new unchecked line in a mapped note. */

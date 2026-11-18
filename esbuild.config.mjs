@@ -13,5 +13,6 @@ const context = await esbuild.context({
   platform: "node",
   target: "es2018",
   logLevel: "info",
+  charset: "utf8",
 });
 if (prod) { await context.rebuild(); process.exit(0); } else { await context.watch(); }

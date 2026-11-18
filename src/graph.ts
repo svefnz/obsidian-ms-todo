@@ -15,7 +15,7 @@ export class GraphClient {
 			headers: { Authorization: `Bearer ${token}` },
 			body: body === undefined ? undefined : JSON.stringify(body),
 		});
-		if (res.status >= 400) throw new Error(`Graph API ${method} ${url} failed: ${res.status} ${res.text}`);
+		if (res.status >= 400) throw new Error(`Graph API 请求失败（${method} ${url}）：${res.status} ${res.text}`);
 		return res.json as T;
 	}
 	async getLists(): Promise<TodoList[]> {

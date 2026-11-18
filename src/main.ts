@@ -35,7 +35,7 @@ export default class MSTodoPlugin extends Plugin {
 			const { verifier, resolve, reject } = this.pendingAuth;
 			this.pendingAuth = null;
 			if (params.error) {
-				reject(new Error(`Auth error: ${params.error} ${params.error_description ?? ""}`));
+				reject(new Error(`登录失败：${params.error} ${params.error_description ?? ""}`));
 				return;
 			}
 			try {
@@ -56,20 +56,20 @@ export default class MSTodoPlugin extends Plugin {
 			}
 		});
 
-		this.addCommand({ id: "sign-in", name: "Sign in to Microsoft To Do", callback: () => void this.signIn() });
+		this.addCommand({ id: "sign-in", name: "登录 Microsoft To Do", callback: () => void this.signIn() });
 		this.addCommand({
 			id: "sync-all",
-			name: "Sync all mapped lists",
+			name: "同步全部已映射清单",
 			callback: () => void this.runSyncAll(),
 		});
 		this.addCommand({
 			id: "import-list",
-			name: "Import a To Do list as a note",
+			name: "导入 To Do 清单为笔记",
 			callback: () => void this.importList(),
 		});
 		this.addCommand({
 			id: "map-current-note",
-			name: "Map current note to a To Do list",
+			name: "将当前笔记映射到 To Do 清单",
 			checkCallback: (checking) => {
 				const file = this.app.workspace.getActiveFile();
 				if (!file) return false;
@@ -114,24 +114,24 @@ export default class MSTodoPlugin extends Plugin {
 
 	async signIn(): Promise<void> {
 		if (!this.settings.clientId) {
-			new Notice("Set your Azure client ID in settings first.");
+			new Notice("请先在插件设置中填写 Azure 客户端 ID。");
 			return;
 		}
 		const { verifier, challenge } = await pkce();
 		const url = buildAuthorizeUrl(this.settings.clientId, challenge);
 		window.open(url, "_blank");
-		new Notice("Complete sign-in in your browser…");
+		new Notice("请在浏览器中完成 Microsoft 账号登录…");
 		const code = await new Promise<string>((resolve, reject) => {
 			this.pendingAuth = { verifier, resolve, reject };
 			// Expire after 5 minutes
 			window.setTimeout(() => {
 				if (this.pendingAuth) {
 					this.pendingAuth = null;
-					reject(new Error("Auth timed out."));
+					reject(new Error("登录超时。"));
 				}
 			}, 5 * 60000);
 		});
-		new Notice("Signed in to Microsoft To Do.");
+		new Notice("已登录 Microsoft To Do。");
 	}
 
 	async runSyncAll() {
@@ -139,7 +139,7 @@ export default class MSTodoPlugin extends Plugin {
 			const msg = await this.sync.syncAll();
 			new Notice(msg);
 		} catch (e) {
-			new Notice(`Microsoft To Do sync failed: ${(e as Error).message}`, 10000);
+			new Notice(`Microsoft To Do 同步失败：${(e as Error).message}`, 10000);
 		}
 	}
 
@@ -152,9 +152,9 @@ export default class MSTodoPlugin extends Plugin {
 			await this.sync.syncListToListingNote(picked, notePath);
 			this.settings.mappings[picked.id] = notePath;
 			await this.saveSettings();
-			new Notice(`Imported "${picked.displayName}" → ${notePath}`);
+			new Notice(`已导入「${picked.displayName}」→ ${notePath}`);
 		} catch (e) {
-			new Notice(`Import failed: ${(e as Error).message}`, 10000);
+			new Notice(`导入失败：${(e as Error).message}`, 10000);
 		}
 	}
 
@@ -165,9 +165,9 @@ export default class MSTodoPlugin extends Plugin {
 			if (!picked) return;
 			this.settings.mappings[picked.id] = file.path;
 			await this.saveSettings();
-			new Notice(`Mapped "${picked.displayName}" → ${file.path}`);
+			new Notice(`已映射「${picked.displayName}」→ ${file.path}`);
 		} catch (e) {
-			new Notice(`Mapping failed: ${(e as Error).message}`, 10000);
+			new Notice(`映射失败：${(e as Error).message}`, 10000);
 		}
 	}
 
@@ -220,7 +220,7 @@ import { App, FuzzySuggestModal } from "obsidian";
 class ListPickerModal extends FuzzySuggestModal<TodoList> {
 	constructor(app: App, private lists: TodoList[], private onPick: (l: TodoList | null) => void) {
 		super(app);
-		this.setPlaceholder("Pick a Microsoft To Do list…");
+		this.setPlaceholder("选择一个 Microsoft To Do 清单…");
 	}
 
 	getItems(): TodoList[] {

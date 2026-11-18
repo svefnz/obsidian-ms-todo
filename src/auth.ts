@@ -40,7 +40,7 @@ export class AuthManager {
 		if (s.accessToken && s.tokenExpiry && Date.now() < s.tokenExpiry - 60000) {
 			return s.accessToken;
 		}
-		if (!s.refreshToken) throw new Error("Not authenticated: no refresh token. Run 'Sign in to Microsoft To Do'.");
+		if (!s.refreshToken) throw new Error("尚未登录：没有刷新令牌，请先执行「登录 Microsoft To Do」命令。");
 		const tok = await this.refresh(s.refreshToken);
 		s.accessToken = tok.access_token;
 		s.tokenExpiry = Date.now() + tok.expires_in * 1000;
@@ -61,7 +61,7 @@ export class AuthManager {
 			contentType: "application/x-www-form-urlencoded",
 			body: body.toString(),
 		});
-		if (res.status >= 400) throw new Error(`Token refresh failed: ${res.status} ${res.text}`);
+		if (res.status >= 400) throw new Error(`令牌刷新失败：${res.status} ${res.text}`);
 		return res.json as TokenResult;
 	}
 }
@@ -110,8 +110,8 @@ export async function exchangeCode(clientId: string, code: string, verifier: str
 		body: body.toString(),
 	});
 	if (res.status >= 400) {
-		new Notice(`Microsoft To Do auth failed: ${res.text}`, 10000);
-		throw new Error(`Auth code exchange failed: ${res.status} ${res.text}`);
+		new Notice(`Microsoft To Do 登录失败：${res.text}`, 10000);
+		throw new Error(`授权码兑换失败：${res.status} ${res.text}`);
 	}
 	return res.json as TokenResult;
 }
