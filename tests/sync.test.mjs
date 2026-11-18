@@ -120,9 +120,18 @@ assert.deepStrictEqual([...vault.files.keys()].sort(), [...before.keys()].sort()
 // 3) 幂等：任务不会因为重复同步而重复追加
 assert.strictEqual(vault.files.get("Microsoft To Do/工作.md").split("写报告").length - 1, 1, "no duplicate task line");
 
-// 3b) 行里带 block id，改标题后按 id 就地更新（不新增行）
+// 3b) 行里带 block id（合法字符），改标题后按 id 就地更新（不新增行）
 const workNote = () => vault.files.get("Microsoft To Do/工作.md");
 assert.match(workNote(), / \^ms-todo-[0-9a-f]{16}$/m, "block id written in Obsidian-safe form");
+
+// 3a3) 认不出来源的旧格式 id（任务已删/已改）会被摘掉，避免阅读视图里露出来
+const goodNote = workNote();
+vault.files.set("Microsoft To Do/工作.md", "# 工作\n- [ ] 写报告 📅 2026-01-05 ^ms-todo-AAMkAGI2THVSAAA=\n");
+await engine.syncAll();
+assert.ok(!workNote().includes("^ms-todo-AAMkAGI2THVSAAA="), "dangling legacy id removed");
+assert.ok(workNote().includes("写报告"), "line text kept");
+vault.files.set("Microsoft To Do/工作.md", goodNote); // 复原，后续用例依赖这行
+await engine.syncAll();
 
 // 3a2) 旧格式（完整 base64 taskId）的笔记行仍能匹配，并被重写成新格式
 const legacyNote = workNote().replace(/ \^ms-todo-[0-9a-f]{16}$/m, " ^ms-todo-t1");

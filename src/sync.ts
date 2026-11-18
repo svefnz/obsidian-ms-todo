@@ -1,6 +1,6 @@
 import { App, Notice, TFile, TFolder } from "obsidian";
 import type { GraphClient } from "./graph";
-import { blockIdFor, parseLine, taskToLine } from "./markdown";
+import { BLOCK_ID_RE, blockIdFor, parseLine, taskToLine } from "./markdown";
 import type { MSTodoSettings } from "./settings";
 import type { TodoList, TodoTask } from "./types";
 
@@ -177,6 +177,12 @@ export class SyncEngine {
 				const task = taskById.get(parsed.taskId)!;
 				matchedTaskIds.add(task.id);
 				newLines.push(taskToLine(task, parsed.indent));
+				continue;
+			}
+			// 旧格式（整条 base64 id）已认不出来源任务：Obsidian 不认这种块引用，
+			// 会在阅读视图里当普通文字显示，所以直接摘掉，别再碍眼
+			if (parsed?.taskId && !/^[0-9a-f]{16}$/.test(parsed.taskId)) {
+				newLines.push(line.replace(BLOCK_ID_RE, ""));
 				continue;
 			}
 			newLines.push(line);
