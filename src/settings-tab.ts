@@ -2,7 +2,9 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type MSTodoPlugin from "./main";
 
 const AZURE_APP_REGISTRATIONS =
-	"https://portal.azure.com/#blade/Microsoft_Azure_RegisteredApps/ApplicationsListBlade";
+	"https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade";
+const AZURE_NEW_REGISTRATION =
+	"https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false";
 const AZURE_DOC = "https://github.com/svefnz/obsidian-ms-todo#%E9%85%8D%E7%BD%AE";
 
 export class MSTodoSettingTab extends PluginSettingTab {
@@ -23,7 +25,13 @@ export class MSTodoSettingTab extends PluginSettingTab {
 			)
 			.addButton((b) =>
 				b
-					.setButtonText("打开 Azure 注册页 ↗")
+					.setButtonText("新建应用注册 ↗")
+					.setCta()
+					.onClick(() => window.open(AZURE_NEW_REGISTRATION, "_blank"))
+			)
+			.addButton((b) =>
+				b
+					.setButtonText("注册列表 ↗")
 					.onClick(() => window.open(AZURE_APP_REGISTRATIONS, "_blank"))
 			)
 			.addExtraButton((b) =>
