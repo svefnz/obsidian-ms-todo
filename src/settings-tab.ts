@@ -205,7 +205,8 @@ export class MSTodoSettingTab extends PluginSettingTab {
 			.setDesc(
 				"每隔这么多分钟跑一次「同步全部已映射清单」：从 Microsoft To Do 拉取最新任务写进笔记。" +
 					"0 = 关闭定时同步，只有在笔记里改动（新建/勾选任务）才会立刻推送，" +
-					"To Do 那边的改动需要你手动执行一次同步才会出现。"
+					"To Do 那边的改动需要你手动执行一次同步才会出现。" +
+					" 大于 0 时，切回 Obsidian 窗口也会补拉一次（最多每分钟一次）。"
 			)
 			.addText((t) =>
 				t

@@ -1,6 +1,6 @@
 {
   "name": "obsidian-ms-todo-sync",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Sync tasks between Microsoft To Do and Obsidian notes.",
   "scripts": {
     "build": "node esbuild.config.mjs production",

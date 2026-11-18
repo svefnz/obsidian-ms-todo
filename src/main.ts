@@ -13,6 +13,8 @@ export default class MSTodoPlugin extends Plugin {
 	graph!: GraphClient;
 	sync!: SyncEngine;
 	private autoTimer: number | null = null;
+	private syncing = false;
+	private lastSyncAt = 0;
 	listsCache: TodoList[] | null = null;
 
 	async onload() {
@@ -61,6 +63,8 @@ export default class MSTodoPlugin extends Plugin {
 
 		this.addSettingTab(new MSTodoSettingTab(this.app, this));
 		this.setupAutoSync();
+		// 从手机/别的窗口切回来时补一次拉取（仅在开启自动同步时，最多每分钟一次）
+		this.registerDomEvent(window, "focus", () => void this.maybeSyncOnFocus());
 	}
 
 	onunload() {
@@ -87,7 +91,7 @@ export default class MSTodoPlugin extends Plugin {
 		this.autoTimer = null;
 		const min = this.settings.autoSyncIntervalMinutes;
 		if (min > 0) {
-			this.autoTimer = window.setInterval(() => void this.runSyncAll(), min * 60000);
+			this.autoTimer = window.setInterval(() => void this.runSyncAll(true), min * 60000);
 		}
 	}
 
@@ -134,13 +138,25 @@ export default class MSTodoPlugin extends Plugin {
 		}
 	}
 
-	async runSyncAll() {
+	async runSyncAll(quiet = false) {
+		if (this.syncing) return; // 定时/焦点/手动撞车时只跑一个
+		this.syncing = true;
 		try {
 			const msg = await this.sync.syncAll();
-			new Notice(msg);
+			this.lastSyncAt = Date.now();
+			if (!quiet) new Notice(msg);
 		} catch (e) {
 			new Notice(`Microsoft To Do 同步失败：${(e as Error).message}`, 10000);
+		} finally {
+			this.syncing = false;
 		}
+	}
+
+	/** 窗口重新获得焦点时补一次同步：失败/未登录静默，间隔不足 1 分钟不重复跑 */
+	async maybeSyncOnFocus() {
+		if (this.settings.autoSyncIntervalMinutes <= 0 || !this.settings.refreshToken) return;
+		if (Date.now() - this.lastSyncAt < 60_000) return;
+		await this.runSyncAll(true);
 	}
 
 	/** 清单列表缓存，避免设置页每次重绘都打一次 API */
