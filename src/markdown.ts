@@ -8,8 +8,25 @@ export function taskToMetadata(task: TodoTask): Record<string, string> {
 }
 
 /**
+ * Obsidian block ids may only contain letters, digits and dashes, and To Do's
+ * task ids are base64 (with `=`, `+`, `/`, `_`) — embedding them verbatim made
+ * the id render as plain text in reading view. So we hash to a stable,
+ * block-id-safe 16-hex token.
+ */
+export function blockIdFor(taskId: string): string {
+	let h1 = 0x811c9dc5;
+	let h2 = 0x01000193;
+	for (let i = 0; i < taskId.length; i++) {
+		const c = taskId.charCodeAt(i);
+		h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+		h2 = Math.imul(h2 ^ (c + i), 0x85ebca6b) >>> 0;
+	}
+	return `ms-todo-${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
+}
+
+/**
  * Build a checkbox line for a task.
- * The trailing `^ms-todo-<id>` block id is what lets later syncs match the
+ * The trailing `^ms-todo-<hash>` block id is what lets later syncs match the
  * line to the task by id instead of by title (titles get renamed).
  */
 export function taskToLine(task: TodoTask, indent = "", withId = true): string {
@@ -17,11 +34,12 @@ export function taskToLine(task: TodoTask, indent = "", withId = true): string {
 	const parts: string[] = [indent, done ? "- [x] " : "- [ ] ", task.title];
 	if (task.dueDateTime) parts.push(" 📅 ", task.dueDateTime.dateTime.slice(0, 10));
 	if (task.body?.content) parts.push(" 💭 ", task.body.content.replace(/\n/g, " "));
-	if (withId && task.id) parts.push(` ^ms-todo-${task.id}`);
+	if (withId && task.id) parts.push(` ^${blockIdFor(task.id)}`);
 	return parts.join("");
 }
 
-export const BLOCK_ID_RE = /\s+\^ms-todo-([0-9a-zA-Z-]+)\s*$/;
+// 兼容旧格式（整条 base64 taskId）与新格式（16 位十六进制）
+export const BLOCK_ID_RE = /\s+\^ms-todo-([0-9a-zA-Z=+_/-]+)\s*$/;
 
 /** Parse a checkbox line into (title, done, indent, taskId). */
 export function parseLine(

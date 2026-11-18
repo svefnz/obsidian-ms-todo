@@ -1,13 +1,13 @@
 import { App, Notice, TFile, TFolder } from "obsidian";
 import type { GraphClient } from "./graph";
-import { parseLine, taskToLine } from "./markdown";
+import { blockIdFor, parseLine, taskToLine } from "./markdown";
 import type { MSTodoSettings } from "./settings";
 import type { TodoList, TodoTask } from "./types";
 
 /**
  * Bidirectional sync between one To Do list and one note.
  *
- * - Note lines containing a `ms-todo-id` block-id (`^ms-todo-id-<id>`) are
+ * - Note lines containing a `ms-todo-<hash>` block-id are
  *   matched to To Do tasks by id; those without are matched by title.
  * - Tasks new to the note are appended; note lines new to To Do are created.
  * - Completion state and title changes propagate both ways (last-writer-wins
@@ -20,6 +20,9 @@ export class SyncEngine {
 		private settings: MSTodoSettings,
 		private save: () => Promise<void> = async () => {}
 	) {}
+
+	/** block id（哈希串）→ 真实 taskId，供勾选回写用 */
+	private tokenToId = new Map<string, string>();
 
 	async syncListToListingNote(list: TodoList, notePath: string): Promise<void> {
 		let file = this.app.vault.getAbstractFileByPath(notePath);
@@ -151,7 +154,16 @@ export class SyncEngine {
 			? tasks.filter((t) => t.status !== "completed" && t.status !== "autoCompleted")
 			: tasks;
 
-		const taskById = new Map(visible.map((t) => [t.id, t]));
+		// 同时按哈希 token 和原始 id 建索引：旧笔记里的完整 id 仍能匹配上，
+		// 匹配到的行会被重写成新格式（下次同步即完成迁移）
+		const taskById = new Map<string, TodoTask>();
+		for (const t of visible) {
+			taskById.set(t.id, t);
+			const token = blockIdFor(t.id).replace(/^ms-todo-/, ""); // 行里存的是去掉前缀的部分
+			taskById.set(token, t);
+			this.tokenToId.set(token, t.id);
+			this.tokenToId.set(t.id, t.id);
+		}
 		const matchedTaskIds = new Set<string>();
 		const noteTitles = new Set<string>();
 
@@ -181,7 +193,8 @@ export class SyncEngine {
 	}
 
 	/** Push a single checkbox toggle from the note to To Do. */
-	async pushToggle(file: TFile, listId: string, taskId: string, done: boolean): Promise<void> {
+	async pushToggle(file: TFile, listId: string, token: string, done: boolean): Promise<void> {
+		const taskId = this.tokenToId.get(token) ?? token; // 未同步过时按原值试
 		if (done) {
 			await this.graph.updateTask(listId, taskId, {
 				status: "completed",

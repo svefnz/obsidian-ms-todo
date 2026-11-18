@@ -121,7 +121,15 @@ assert.deepStrictEqual([...vault.files.keys()].sort(), [...before.keys()].sort()
 assert.strictEqual(vault.files.get("Microsoft To Do/工作.md").split("写报告").length - 1, 1, "no duplicate task line");
 
 // 3b) 行里带 block id，改标题后按 id 就地更新（不新增行）
-assert.ok(vault.files.get("Microsoft To Do/工作.md").includes("^ms-todo-t1"), "block id written");
+const workNote = () => vault.files.get("Microsoft To Do/工作.md");
+assert.match(workNote(), / \^ms-todo-[0-9a-f]{16}$/m, "block id written in Obsidian-safe form");
+
+// 3a2) 旧格式（完整 base64 taskId）的笔记行仍能匹配，并被重写成新格式
+const legacyNote = workNote().replace(/ \^ms-todo-[0-9a-f]{16}$/m, " ^ms-todo-t1");
+vault.files.set("Microsoft To Do/工作.md", legacyNote);
+await engine.syncAll();
+assert.match(workNote(), / \^ms-todo-[0-9a-f]{16}$/m, "legacy id migrated to short form");
+assert.strictEqual(workNote().split("写报告").length - 1, 1, "legacy match did not duplicate the line");
 graph.tasks.L1 = [{ ...graph.tasks.L1[0], title: "写季度报告" }];
 await engine.syncAll();
 const afterRename = vault.files.get("Microsoft To Do/工作.md");
