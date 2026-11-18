@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type MSTodoPlugin from "./main";
 
 const AZURE_APP_REGISTRATIONS =
@@ -10,6 +10,55 @@ const AZURE_DOC = "https://github.com/svefnz/obsidian-ms-todo#%E9%85%8D%E7%BD%AE
 export class MSTodoSettingTab extends PluginSettingTab {
 	constructor(app: App, private plugin: MSTodoPlugin) {
 		super(app, plugin);
+	}
+
+	/** 账号下所有清单 + 勾选同步 / 取消同步 */
+	private async renderLists(el: HTMLElement): Promise<void> {
+		el.empty();
+		el.createEl("h3", { text: "要同步的清单" });
+		if (!this.plugin.settings.refreshToken) {
+			el.createEl("p", { text: "登录后可在此勾选需要同步的清单。" });
+			return;
+		}
+		const status = el.createEl("p", { text: "正在读取清单…" });
+		let lists;
+		try {
+			lists = await this.plugin.getLists(true);
+		} catch (e) {
+			status.setText(`读取清单失败：${(e as Error).message}`);
+			return;
+		}
+		status.remove();
+		if (lists.length === 0) {
+			el.createEl("p", { text: "账号下没有 Microsoft To Do 清单。" });
+			return;
+		}
+
+		const head = new Setting(el).setName("清单").setDesc("勾选后参与同步，取消勾选会停止同步但保留已生成的笔记。");
+		head.addButton((b) =>
+			b.setButtonText("刷新清单").onClick(async () => {
+				this.plugin.listsCache = null;
+				await this.renderLists(el);
+			})
+		);
+
+		for (const list of lists) {
+			const shownName = `「${list.displayName}」`;
+			const enabled = !this.plugin.settings.disabledListIds.includes(list.id);
+			const path = this.plugin.settings.mappings[list.id];
+			new Setting(el)
+				.setName(shownName)
+				.setDesc(path ? path : "尚未同步")
+				.addToggle((t) =>
+					t.setValue(enabled).onChange(async (v) => {
+						const disabled = new Set(this.plugin.settings.disabledListIds);
+						if (v) disabled.delete(list.id);
+						else disabled.add(list.id);
+						this.plugin.settings.disabledListIds = [...disabled];
+						await this.plugin.saveSettings();
+					})
+				);
+		}
 	}
 
 	display(): void {
@@ -87,6 +136,9 @@ export class MSTodoSettingTab extends PluginSettingTab {
 					.onClick(() => void this.plugin.runSyncAll())
 			);
 
+		const listsBox = containerEl.createDiv();
+		void this.renderLists(listsBox);
+
 		new Setting(containerEl)
 			.setName("同步文件夹")
 			.setDesc("执行“同步全部清单”时，为尚未映射的清单自动创建笔记的位置。")
@@ -95,8 +147,17 @@ export class MSTodoSettingTab extends PluginSettingTab {
 					.setPlaceholder("Microsoft To Do")
 					.setValue(this.plugin.settings.syncFolder)
 					.onChange(async (v) => {
-						this.plugin.settings.syncFolder = v.trim() || "Microsoft To Do";
+						const from = this.plugin.settings.syncFolder;
+						const to = v.trim() || "Microsoft To Do";
+						if (from === to) return;
+						this.plugin.settings.syncFolder = to;
 						await this.plugin.saveSettings();
+						try {
+							await this.plugin.migrateSyncFolder(from, to);
+							this.display(); // 路径变了，重绘清单列表
+						} catch (e) {
+							new Notice(`迁移笔记失败：${(e as Error).message}`, 10000);
+						}
 					})
 			);
 

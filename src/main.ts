@@ -13,6 +13,7 @@ export default class MSTodoPlugin extends Plugin {
 	graph!: GraphClient;
 	sync!: SyncEngine;
 	private autoTimer: number | null = null;
+	listsCache: TodoList[] | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -126,6 +127,7 @@ export default class MSTodoPlugin extends Plugin {
 			this.settings.accessToken = token.access_token;
 			this.settings.tokenExpiry = Date.now() + token.expires_in * 1000;
 			await this.saveSettings();
+			this.listsCache = null;
 			new Notice("已登录 Microsoft To Do。");
 		} catch (e) {
 			new Notice(`登录失败：${(e as Error).message}`, 12000);
@@ -141,9 +143,23 @@ export default class MSTodoPlugin extends Plugin {
 		}
 	}
 
+	/** 清单列表缓存，避免设置页每次重绘都打一次 API */
+	async getLists(force = false): Promise<TodoList[]> {
+		if (!force && this.listsCache) return this.listsCache;
+		this.listsCache = await this.graph.getLists();
+		return this.listsCache;
+	}
+
+	/** 同步文件夹改名后迁移已同步的笔记（旧文件随重命名消失，空文件夹删除） */
+	async migrateSyncFolder(from: string, to: string): Promise<number> {
+		const moved = await this.sync.migrateFolder(from, to);
+		if (moved > 0) new Notice(`已迁移 ${moved} 篇笔记到「${to}」，旧路径已删除。`);
+		return moved;
+	}
+
 	async importList() {
 		try {
-			const lists = await this.graph.getLists();
+			const lists = await this.getLists(true);
 			const picked = await this.pickList(lists);
 			if (!picked) return;
 			const notePath = `${picked.displayName.replace(/[\\/:*?"<>|]/g, "-")}.md`;
@@ -158,7 +174,7 @@ export default class MSTodoPlugin extends Plugin {
 
 	async mapCurrentNote(file: TFile) {
 		try {
-			const lists = await this.graph.getLists();
+			const lists = await this.getLists(true);
 			const picked = await this.pickList(lists);
 			if (!picked) return;
 			this.settings.mappings[picked.id] = file.path;
@@ -184,7 +200,7 @@ export default class MSTodoPlugin extends Plugin {
 	private lastEditSnapshot = new Map<string, string>();
 	private async handleEditorChange(editor: Editor, file: TFile) {
 		const listId = Object.entries(this.settings.mappings).find(([, p]) => p === file.path)?.[0];
-		if (!listId) return;
+		if (!listId || this.settings.disabledListIds.includes(listId)) return;
 		const snapshot = this.lastEditSnapshot.get(file.path);
 		const content = editor.getValue();
 		if (snapshot === undefined) {

@@ -7,3 +7,11 @@ export class TFile {
 		this.path = path;
 	}
 }
+
+export class TFolder {
+	path: string;
+	children: unknown[] = [];
+	constructor(path: string) {
+		this.path = path;
+	}
+}

@@ -1,4 +1,4 @@
-import { App, Notice, TFile } from "obsidian";
+import { App, Notice, TFile, TFolder } from "obsidian";
 import type { GraphClient } from "./graph";
 import { parseLine, taskToLine } from "./markdown";
 import type { MSTodoSettings } from "./settings";
@@ -44,6 +44,7 @@ export class SyncEngine {
 		let changed = false;
 		let synced = 0;
 		for (const list of lists) {
+			if (this.settings.disabledListIds?.includes(list.id)) continue;
 			let notePath = this.settings.mappings[list.id];
 			if (!notePath) {
 				notePath = this.uniquePath(list.displayName, used);
@@ -56,6 +57,44 @@ export class SyncEngine {
 		}
 		if (changed) await this.save();
 		return `已同步 ${synced} 个清单。`;
+	}
+
+	/**
+	 * 同步文件夹改名：把旧文件夹下已映射的笔记搬到新文件夹，旧文件随之消失，
+	 * 搬空后的旧文件夹一并删除。
+	 */
+	async migrateFolder(from: string, to: string): Promise<number> {
+		const norm = (p: string) => p.replace(/\/+$/, "").trim();
+		const oldDir = norm(from);
+		const newDir = norm(to);
+		if (!oldDir || oldDir === newDir) return 0;
+		const oldPrefix = `${oldDir}/`;
+		let moved = 0;
+		for (const [listId, path] of Object.entries(this.settings.mappings)) {
+			if (!path.startsWith(oldPrefix)) continue;
+			let target = `${newDir}/${path.slice(oldPrefix.length)}`;
+			// 目标位置已有同名笔记时不覆盖，另起名字
+			if (this.app.vault.getAbstractFileByPath(target)) {
+				const m = /\.md$/.exec(target);
+				const stem = m ? target.slice(0, m.index) : target;
+				let n = 2;
+				while (this.app.vault.getAbstractFileByPath(`${stem} ${n}${m ? ".md" : ""}`)) n++;
+				target = `${stem} ${n}${m ? ".md" : ""}`;
+			}
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (file instanceof TFile) {
+				await this.ensureFolder(target);
+				await this.app.vault.rename(file, target);
+				moved++;
+			}
+			this.settings.mappings[listId] = target;
+		}
+		const oldFolder = this.app.vault.getAbstractFileByPath(oldDir);
+		if (oldFolder instanceof TFolder && oldFolder.children.length === 0) {
+			await this.app.vault.delete(oldFolder);
+		}
+		await this.save();
+		return moved;
 	}
 
 	private uniquePath(listName: string, used: Set<string>): string {

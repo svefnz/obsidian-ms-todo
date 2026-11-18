@@ -19,21 +19,45 @@ const out = await build({
 const mod = { exports: {} };
 new Function("module", "exports", "require", out.outputFiles[0].text)(mod, mod.exports, createRequire(import.meta.url));
 const { SyncEngine, safeFileName } = mod.exports;
-const { TFile } = mod.exports;
+const { TFile, TFolder } = mod.exports;
 
 class Vault {
 	constructor() {
 		this.files = new Map();
 		this.folders = new Set();
+		this.folderObjs = new Map();
+	}
+	syncFolderChildren() {
+		for (const [p, f] of this.folderObjs) {
+			f.children = [...this.files.keys()].filter((k) => k.startsWith(`${p}/`));
+		}
+	}
+	async rename(file, newPath) {
+		if (!this.files.has(file.path)) throw new Error(`no file ${file.path}`);
+		const content = this.files.get(file.path);
+		this.files.delete(file.path);
+		this.files.set(newPath, content);
+		this.syncFolderChildren();
+		return new TFile(newPath);
+	}
+	async delete(target) {
+		if (target instanceof TFolder) {
+			this.folders.delete(target.path);
+			this.folderObjs.delete(target.path);
+			return;
+		}
+		this.files.delete(target.path);
+		this.syncFolderChildren();
 	}
 	getAbstractFileByPath(p) {
 		if (this.files.has(p)) return new TFile(p);
-		if (this.folders.has(p)) return { path: p };
+		if (this.folderObjs.has(p)) return this.folderObjs.get(p);
 		return null;
 	}
 	async create(p, content) {
 		if (this.files.has(p)) throw new Error(`already exists: ${p}`);
 		this.files.set(p, content);
+		this.syncFolderChildren();
 		return new TFile(p);
 	}
 	async modify(f, content) {
@@ -44,6 +68,7 @@ class Vault {
 	}
 	async createFolder(p) {
 		this.folders.add(p);
+		this.folderObjs.set(p, new TFolder(p));
 	}
 }
 
@@ -66,7 +91,7 @@ const graph = {
 	},
 };
 
-const settings = { mappings: {}, syncFolder: "Microsoft To Do", hideCompleted: false };
+const settings = { mappings: {}, disabledListIds: [], syncFolder: "Microsoft To Do", hideCompleted: false };
 const vault = new Vault();
 let saves = 0;
 const engine = new SyncEngine({ vault }, graph, settings, async () => { saves++; });
@@ -108,6 +133,32 @@ assert.ok(!afterRename.includes("写报告\n") || afterRename.includes("写季�
 graph.tasks.L1 = [{ ...graph.tasks.L1[0], status: "completed" }];
 await engine.syncAll();
 assert.ok(vault.files.get("Microsoft To Do/工作.md").includes("- [x] 写季度报告"), "completion synced");
+
+// 3d) 取消勾选的清单不同步
+settings.disabledListIds = ["L2"];
+const beforeSkip = settings.mappings.L2;
+await engine.syncAll();
+assert.deepStrictEqual(settings.mappings.L2, beforeSkip, "disabled list keeps old mapping untouched");
+settings.disabledListIds = [];
+
+// 3e) 改同步文件夹 -> 笔记迁移，旧路径消失，空文件夹删除
+const moved = await engine.migrateFolder("Microsoft To Do", "待办/To Do");
+assert.strictEqual(moved, 3, "three notes moved");
+assert.deepStrictEqual(Object.values(settings.mappings).sort(), ["待办/To Do/买菜-清单.md", "待办/To Do/工作 2.md", "待办/To Do/工作.md"].sort());
+assert.ok(vault.files.has("待办/To Do/工作.md"), "file at new path");
+assert.ok(!vault.files.has("Microsoft To Do/工作.md"), "old path gone");
+assert.ok(vault.files.get("待办/To Do/工作.md").includes("写季度报告"), "content preserved");
+assert.ok(!vault.folderObjs.has("Microsoft To Do"), "empty old folder removed");
+settings.syncFolder = "待办/To Do";
+
+// 3f) 目标已存在同名笔记时不覆盖
+settings.syncFolder = "待办/To Do";
+await vault.create("归档/工作.md", "占用");
+await engine.migrateFolder("待办/To Do", "归档");
+assert.strictEqual(vault.files.get("归档/工作.md"), "占用", "existing note untouched");
+assert.ok(vault.files.has("归档/工作 2.md"), "collision renamed");
+settings.mappings = {};
+settings.syncFolder = "Microsoft To Do";
 
 // 4) 空账户
 const emptyEngine = new SyncEngine({ vault: new Vault() }, { getLists: async () => [] }, settings, async () => {});
