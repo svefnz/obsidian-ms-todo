@@ -19,7 +19,7 @@ export class MSTodoSettingTab extends PluginSettingTab {
 			const moved = await this.plugin.migrateSyncFolder(this.plugin.settings.syncFolder);
 			if (moved > 0) this.display(); // 路径变了，重绘清单列表
 		} catch (e) {
-			new Notice(`迁移笔记失败：${(e as Error).message}`, 10000);
+			new Notice(`迁移笔记失败：${(e as Error).message}`, 15000);
 		}
 	}
 
@@ -167,6 +167,11 @@ export class MSTodoSettingTab extends PluginSettingTab {
 							void this.runMigration();
 						}, 800);
 					})
+			)
+			.addButton((b) =>
+				b.setButtonText("立即迁移笔记").onClick(async () => {
+					await this.runMigration();
+				})
 			);
 
 		new Setting(containerEl)

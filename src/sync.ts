@@ -60,41 +60,52 @@ export class SyncEngine {
 	}
 
 	/**
-	 * 同步文件夹改名：把旧文件夹下已映射的笔记搬到新文件夹，旧文件随之消失，
-	 * 搬空后的旧文件夹一并删除。
+	 * 把所有映射笔记搬到目标文件夹（不看"旧文件夹"是谁，因此重启/改设置后
+	 * 仍然可靠，且可重复执行）。
 	 */
-	async migrateFolder(from: string, to: string): Promise<number> {
+	async migrateInto(to: string): Promise<{ moved: number; missing: string[] }> {
 		const norm = (p: string) => p.replace(/\/+$/, "").trim();
-		const oldDir = norm(from);
 		const newDir = norm(to);
-		if (!oldDir || oldDir === newDir) return 0;
-		const oldPrefix = `${oldDir}/`;
+		const oldDirs = new Set<string>();
 		let moved = 0;
+		const missing: string[] = [];
 		for (const [listId, path] of Object.entries(this.settings.mappings)) {
-			if (!path.startsWith(oldPrefix)) continue;
-			let target = `${newDir}/${path.slice(oldPrefix.length)}`;
-			// 目标位置已有同名笔记时不覆盖，另起名字
-			if (this.app.vault.getAbstractFileByPath(target)) {
-				const m = /\.md$/.exec(target);
-				const stem = m ? target.slice(0, m.index) : target;
-				let n = 2;
-				while (this.app.vault.getAbstractFileByPath(`${stem} ${n}${m ? ".md" : ""}`)) n++;
-				target = `${stem} ${n}${m ? ".md" : ""}`;
-			}
+			const cut = path.lastIndexOf("/");
+			const dir = cut === -1 ? "" : path.slice(0, cut);
+			const name = cut === -1 ? path : path.slice(cut + 1);
+			if (dir !== newDir) oldDirs.add(dir);
+			if (dir === newDir) continue;
 			const file = this.app.vault.getAbstractFileByPath(path);
-			if (file instanceof TFile) {
-				await this.ensureFolder(target);
-				await this.app.vault.rename(file, target);
-				moved++;
+			if (!(file instanceof TFile)) {
+				missing.push(path);
+				continue;
 			}
+			const target = this.freeName(`${newDir}/${name}`);
+			await this.ensureFolder(target);
+			await this.app.vault.rename(file, target);
 			this.settings.mappings[listId] = target;
+			moved++;
 		}
-		const oldFolder = this.app.vault.getAbstractFileByPath(oldDir);
-		if (oldFolder instanceof TFolder && oldFolder.children.length === 0) {
-			await this.app.vault.delete(oldFolder);
+		for (const dir of oldDirs) {
+			if (!dir) continue;
+			const folder = this.app.vault.getAbstractFileByPath(dir);
+			if (folder instanceof TFolder && folder.children.length === 0) {
+				await this.app.vault.delete(folder);
+			}
 		}
 		await this.save();
-		return moved;
+		return { moved, missing };
+	}
+
+	/** 目标已存在同名文件时另起名字，绝不覆盖 */
+	private freeName(target: string): string {
+		if (!this.app.vault.getAbstractFileByPath(target)) return target;
+		const dot = /\.md$/.exec(target);
+		const stem = dot ? target.slice(0, dot.index) : target;
+		const ext = dot ? ".md" : "";
+		let n = 2;
+		while (this.app.vault.getAbstractFileByPath(`${stem} ${n}${ext}`)) n++;
+		return `${stem} ${n}${ext}`;
 	}
 
 	private uniquePath(listName: string, used: Set<string>): string {

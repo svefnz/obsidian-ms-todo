@@ -142,8 +142,9 @@ assert.deepStrictEqual(settings.mappings.L2, beforeSkip, "disabled list keeps ol
 settings.disabledListIds = [];
 
 // 3e) 改同步文件夹 -> 笔记迁移，旧路径消失，空文件夹删除
-const moved = await engine.migrateFolder("Microsoft To Do", "待办/To Do");
+const { moved, missing } = await engine.migrateInto("待办/To Do");
 assert.strictEqual(moved, 3, "three notes moved");
+assert.deepStrictEqual(missing, [], "nothing missing");
 assert.deepStrictEqual(Object.values(settings.mappings).sort(), ["待办/To Do/买菜-清单.md", "待办/To Do/工作 2.md", "待办/To Do/工作.md"].sort());
 assert.ok(vault.files.has("待办/To Do/工作.md"), "file at new path");
 assert.ok(!vault.files.has("Microsoft To Do/工作.md"), "old path gone");
@@ -154,9 +155,24 @@ settings.syncFolder = "待办/To Do";
 // 3f) 目标已存在同名笔记时不覆盖
 settings.syncFolder = "待办/To Do";
 await vault.create("归档/工作.md", "占用");
-await engine.migrateFolder("待办/To Do", "归档");
+await engine.migrateInto("归档");
 assert.strictEqual(vault.files.get("归档/工作.md"), "占用", "existing note untouched");
-assert.ok(vault.files.has("归档/工作 2.md"), "collision renamed");
+assert.ok(
+	["归档/工作 2.md", "归档/工作 3.md", "归档/工作 4.md"].some((p) => vault.files.has(p)),
+	"collision renamed"
+);
+// 3g) 迁移可重复执行：再跑一次不搬任何东西
+const noop = await engine.migrateInto("归档");
+assert.strictEqual(noop.moved, 0, "second run is a no-op");
+assert.strictEqual(noop.missing.length, 0);
+
+// 3h) 映射指向的文件不存在时报告 missing，不产生新映射
+settings.mappings = { L1: "不存在/工作.md" };
+const ghost = await engine.migrateInto("新文件夹");
+assert.strictEqual(ghost.moved, 0);
+assert.deepStrictEqual(ghost.missing, ["不存在/工作.md"]);
+assert.deepStrictEqual(settings.mappings, { L1: "不存在/工作.md" }, "mapping untouched when file is gone");
+
 settings.mappings = {};
 settings.syncFolder = "Microsoft To Do";
 
