@@ -153,11 +153,14 @@ export class SyncEngine {
 		const visible = this.settings.hideCompleted
 			? tasks.filter((t) => t.status !== "completed" && t.status !== "autoCompleted")
 			: tasks;
+		// 分页/接口偶发重复时，同一条任务只保留一份，否则每次同步都会多写一行
+		const unique = new Map(visible.map((t) => [t.id, t]));
+		const tasksToWrite = [...unique.values()];
 
 		// 同时按哈希 token 和原始 id 建索引：旧笔记里的完整 id 仍能匹配上，
 		// 匹配到的行会被重写成新格式（下次同步即完成迁移）
 		const taskById = new Map<string, TodoTask>();
-		for (const t of visible) {
+		for (const t of tasksToWrite) {
 			taskById.set(t.id, t);
 			const token = blockIdFor(t.id).replace(/^ms-todo-/, ""); // 行里存的是去掉前缀的部分
 			taskById.set(token, t);
@@ -166,6 +169,7 @@ export class SyncEngine {
 		}
 		const matchedTaskIds = new Set<string>();
 		const noteTitles = new Set<string>();
+		const seenTokens = new Set<string>(); // 同一 block id 只保留第一行，清掉历史重复
 
 		// Pass 1: update existing lines (matched by ^ms-todo-<id> block id),
 		// and remember every title already present so pass 2 can't duplicate.
@@ -173,6 +177,10 @@ export class SyncEngine {
 		for (const line of lines) {
 			const parsed = parseLine(line);
 			if (parsed) noteTitles.add(parsed.title);
+			if (parsed?.taskId) {
+				if (seenTokens.has(parsed.taskId)) continue; // 重复行，丢掉
+				seenTokens.add(parsed.taskId);
+			}
 			if (parsed?.taskId && taskById.has(parsed.taskId)) {
 				const task = taskById.get(parsed.taskId)!;
 				matchedTaskIds.add(task.id);
@@ -189,7 +197,7 @@ export class SyncEngine {
 		}
 
 		// Pass 2: append tasks not present in the note
-		const toAppend = visible.filter((t) => !matchedTaskIds.has(t.id) && !noteTitles.has(t.title));
+		const toAppend = tasksToWrite.filter((t) => !matchedTaskIds.has(t.id) && !noteTitles.has(t.title));
 		if (toAppend.length > 0) {
 			if (newLines.length > 0 && newLines[newLines.length - 1].trim() !== "") newLines.push("");
 			for (const t of toAppend) newLines.push(taskToLine(t));

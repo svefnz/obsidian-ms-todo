@@ -41,6 +41,27 @@ export function taskToLine(task: TodoTask, indent = "", withId = true): string {
 // 兼容旧格式（整条 base64 taskId）与新格式（16 位十六进制）
 export const BLOCK_ID_RE = /\s+\^ms-todo-([0-9a-zA-Z=+_/-]+)\s*$/;
 
+/**
+ * 比较前后两版笔记文本里哪些任务被勾选/取消勾选。
+ * 按 block id 比对而不是按行号——同步会重排（已完成沉底），按行号会把
+ * 挪位置的相邻行误判成"勾选变化"。
+ */
+export function diffToggles(before: string, after: string): { taskId: string; done: boolean }[] {
+	const seen = new Map<string, boolean>();
+	for (const line of before.split("\n")) {
+		const parsed = parseLine(line);
+		if (parsed?.taskId) seen.set(parsed.taskId, parsed.done);
+	}
+	const out: { taskId: string; done: boolean }[] = [];
+	for (const line of after.split("\n")) {
+		const parsed = parseLine(line);
+		if (!parsed?.taskId) continue;
+		const was = seen.get(parsed.taskId);
+		if (was !== undefined && was !== parsed.done) out.push({ taskId: parsed.taskId, done: parsed.done });
+	}
+	return out;
+}
+
 /** Parse a checkbox line into (title, done, indent, taskId). */
 export function parseLine(
 	line: string

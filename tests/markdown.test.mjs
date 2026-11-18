@@ -18,7 +18,7 @@ await (async () => {
 	const run = new Function("module", "exports", "require", ctx.outputFiles[0].text);
 	run(mod, mod.exports, createRequire(import.meta.url));
 })();
-const { taskToLine, parseLine, toGraphDate, blockIdFor } = mod.exports;
+const { taskToLine, parseLine, toGraphDate, blockIdFor, diffToggles } = mod.exports;
 
 // roundtrip
 const task = {
@@ -61,6 +61,23 @@ assert.strictEqual(parseLine(ind).indent, "\t", "indent preserved");
 // non-task lines rejected
 assert.strictEqual(parseLine("- plain bullet"), null);
 assert.strictEqual(parseLine("regular text"), null);
+
+// 重排（已完成沉底）不应被误判成勾选变化
+const beforeSort = "# 工作\n\n- [x] A ^ms-todo-aaaaaaaaaaaaaaaa\n- [ ] B ^ms-todo-bbbbbbbbbbbbbbbb\n";
+const afterSort = "# 工作\n\n- [ ] B ^ms-todo-bbbbbbbbbbbbbbbb\n- [x] A ^ms-todo-aaaaaaaaaaaaaaaa\n";
+assert.deepStrictEqual(diffToggles(beforeSort, afterSort), [], "reordering is not a toggle");
+
+// 真勾选能识别，且只报变化的那条
+assert.deepStrictEqual(
+	diffToggles("- [ ] A ^ms-todo-aaaaaaaaaaaaaaaa", "- [x] A ^ms-todo-aaaaaaaaaaaaaaaa"),
+	[{ taskId: "aaaaaaaaaaaaaaaa", done: true }],
+	"real toggle detected"
+);
+assert.deepStrictEqual(
+	diffToggles("- [ ] A ^ms-todo-aaaaaaaaaaaaaaaa", "- [ ] A ^ms-todo-aaaaaaaaaaaaaaaa\n- [ ] C"),
+	[],
+	"new untagged line is not a toggle"
+);
 
 // graph date
 assert.deepStrictEqual(toGraphDate("2026-11-20"), { dateTime: "2026-11-20T00:00:00.000", timeZone: "UTC" });

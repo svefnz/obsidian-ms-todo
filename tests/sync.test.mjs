@@ -171,6 +171,31 @@ settings.sortCompletedLast = false;
 await engine.syncAll();
 settings.sortCompletedLast = true;
 
+// 3c3) 历史重复行在同步时被清掉（同一 block id 只留一行）
+{
+	graph.tasks.L1 = [{ id: "t1", title: "写季度报告", status: "notStarted" }];
+	await engine.syncAll();
+	const line = vault.files.get("Microsoft To Do/工作.md").split("\n").find((l) => l.includes("写季度报告"));
+	assert.ok(line, "task line written");
+	vault.files.set("Microsoft To Do/工作.md", `# 工作\n\n${line}\n${line}\n${line}\n`);
+	await engine.syncAll();
+	const lines = vault.files.get("Microsoft To Do/工作.md").split("\n").filter((l) => l.startsWith("- ["));
+	assert.strictEqual(lines.length, 1, "duplicate task lines collapsed to one");
+	assert.ok(lines[0].includes("写季度报告"), "surviving line is the right task");
+}
+
+// 3c4) 接口返回重复任务时不会写入多行
+{
+	graph.tasks.L1 = [
+		{ id: "t1", title: "写季度报告", status: "notStarted" },
+		{ id: "t1", title: "写季度报告", status: "notStarted" },
+	];
+	vault.files.set("Microsoft To Do/工作.md", "# 工作\n");
+	await engine.syncAll();
+	const lines = vault.files.get("Microsoft To Do/工作.md").split("\n").filter((l) => l.startsWith("- ["));
+	assert.strictEqual(lines.length, 1, "duplicate tasks from API written once");
+}
+
 // 3d) 取消勾选的清单不同步
 settings.disabledListIds = ["L2"];
 const beforeSkip = settings.mappings.L2;

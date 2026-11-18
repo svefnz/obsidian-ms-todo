@@ -1,1 +1,1 @@
-export { taskToLine, parseLine, toGraphDate, taskToMetadata, blockIdFor } from "../src/markdown";
+export { taskToLine, parseLine, toGraphDate, taskToMetadata, blockIdFor, diffToggles } from "../src/markdown";

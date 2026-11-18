@@ -4,7 +4,7 @@ import { GraphClient } from "./graph";
 import { MSTodoSettingTab } from "./settings-tab";
 import { DEFAULT_SETTINGS, type MSTodoSettings } from "./settings";
 import { SyncEngine } from "./sync";
-import { parseLine, taskToLine } from "./markdown";
+import { diffToggles, parseLine, taskToLine } from "./markdown";
 import type { TodoList } from "./types";
 
 export default class MSTodoPlugin extends Plugin {
@@ -237,12 +237,9 @@ export default class MSTodoPlugin extends Plugin {
 		const beforeLines = snapshot.split("\n");
 		const nowLines = content.split("\n");
 
-		// 勾选状态变化 -> 回写 To Do（只对带 block id 的行可靠）
-		for (let i = 0; i < Math.min(beforeLines.length, nowLines.length); i++) {
-			const b = parseLine(beforeLines[i]);
-			const n = parseLine(nowLines[i]);
-			if (!b || !n || !n.taskId || b.done === n.done) continue;
-			void this.sync.pushToggle(file, listId, n.taskId, n.done).catch(() => undefined);
+		// 勾选状态变化 -> 回写 To Do（按 block id 比对，重排不会误判）
+		for (const { taskId, done } of diffToggles(snapshot, content)) {
+			void this.sync.pushToggle(file, listId, taskId, done).catch(() => undefined);
 		}
 
 		// 新出现的未勾选行 -> 建成 To Do 任务，并把 block id 写回该行
