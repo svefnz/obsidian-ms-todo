@@ -202,7 +202,11 @@ export class MSTodoSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("自动同步间隔（分钟）")
-			.setDesc("0 表示仅手动同步。")
+			.setDesc(
+				"每隔这么多分钟跑一次「同步全部已映射清单」：从 Microsoft To Do 拉取最新任务写进笔记。" +
+					"0 = 关闭定时同步，只有在笔记里改动（新建/勾选任务）才会立刻推送，" +
+					"To Do 那边的改动需要你手动执行一次同步才会出现。"
+			)
 			.addText((t) =>
 				t
 					.setValue(String(this.plugin.settings.autoSyncIntervalMinutes))
