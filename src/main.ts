@@ -72,6 +72,13 @@ export default class MSTodoPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		this.auth.updateSettings({
+			clientId: this.settings.clientId,
+			tenant: this.settings.tenant,
+			refreshToken: this.settings.refreshToken,
+			accessToken: this.settings.accessToken,
+			tokenExpiry: this.settings.tokenExpiry,
+		});
 	}
 
 	setupAutoSync() {
@@ -119,13 +126,6 @@ export default class MSTodoPlugin extends Plugin {
 			this.settings.accessToken = token.access_token;
 			this.settings.tokenExpiry = Date.now() + token.expires_in * 1000;
 			await this.saveSettings();
-			this.auth.updateSettings({
-				clientId: this.settings.clientId,
-				tenant: this.settings.tenant,
-				refreshToken: this.settings.refreshToken,
-				accessToken: this.settings.accessToken,
-				tokenExpiry: this.settings.tokenExpiry,
-			});
 			new Notice("已登录 Microsoft To Do。");
 		} catch (e) {
 			new Notice(`登录失败：${(e as Error).message}`, 12000);
