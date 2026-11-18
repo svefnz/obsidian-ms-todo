@@ -17,6 +17,8 @@ export interface MSTodoSettings extends Record<string, unknown> {
 	disabledListIds: string[];
 	/** Remove tasks from the note when they're completed in To Do */
 	hideCompleted: boolean;
+	/** 已完成的任务自动排到笔记末尾 */
+	sortCompletedLast: boolean;
 	/** 自动导入清单时使用的笔记文件夹 */
 	syncFolder: string;
 	autoSyncIntervalMinutes: number;
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: MSTodoSettings = {
 	disabledListIds: [],
 	syncFolder: "Microsoft To Do",
 	hideCompleted: false,
+	sortCompletedLast: true,
 	autoSyncIntervalMinutes: 0,
 };
 

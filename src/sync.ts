@@ -195,7 +195,30 @@ export class SyncEngine {
 			for (const t of toAppend) newLines.push(taskToLine(t));
 		}
 
-		await this.app.vault.modify(file, newLines.join("\n"));
+		const ordered = this.settings.sortCompletedLast === false ? newLines : this.completedLast(newLines);
+		await this.app.vault.modify(file, ordered.join("\n"));
+	}
+
+	/**
+	 * 把已完成的任务沉到末尾：标题/说明等非任务行保持在最前，未完成按原顺序，
+	 * 已完成按原顺序跟在后面。只排任务行本身，缩进子项不跟着走。
+	 * shortcut: 不处理缩进子任务的成组移动，需要时再按 indent 分组排序。
+	 */
+	private completedLast(lines: string[]): string[] {
+		const head: string[] = [];
+		const open: string[] = [];
+		const done: string[] = [];
+		for (const line of lines) {
+			const parsed = parseLine(line);
+			if (!parsed) head.push(line);
+			else (parsed.done ? done : open).push(line);
+		}
+		while (head.length > 0 && head[head.length - 1].trim() === "") head.pop();
+		const out = [...head];
+		if (open.length > 0) out.push("", ...open);
+		if (done.length > 0) out.push("", ...done);
+		out.push("");
+		return out;
 	}
 
 	/** Push a single checkbox toggle from the note to To Do. */

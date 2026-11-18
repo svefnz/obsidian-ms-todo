@@ -151,6 +151,26 @@ graph.tasks.L1 = [{ ...graph.tasks.L1[0], status: "completed" }];
 await engine.syncAll();
 assert.ok(vault.files.get("Microsoft To Do/工作.md").includes("- [x] 写季度报告"), "completion synced");
 
+// 3c2) 已完成任务自动沉到末尾
+graph.tasks.L1 = [
+	{ id: "t1", title: "写季度报告", status: "completed" },
+	{ id: "t9", title: "新任务", status: "notStarted" },
+];
+await engine.syncAll();
+{
+	const lines = vault.files.get("Microsoft To Do/工作.md").split("\n").filter((l) => l.startsWith("- ["));
+	assert.deepStrictEqual(lines.map((l) => (l.startsWith("- [x]") ? "done" : "open")), ["open", "done"], "completed sunk to the end");
+	assert.strictEqual(lines[0].includes("新任务"), true, "open task first");
+}
+await engine.syncAll(); // 幂等：再跑一次顺序不变
+{
+	const lines = vault.files.get("Microsoft To Do/工作.md").split("\n").filter((l) => l.startsWith("- ["));
+	assert.deepStrictEqual(lines.map((l) => (l.startsWith("- [x]") ? "done" : "open")), ["open", "done"], "ordering is idempotent");
+}
+settings.sortCompletedLast = false;
+await engine.syncAll();
+settings.sortCompletedLast = true;
+
 // 3d) 取消勾选的清单不同步
 settings.disabledListIds = ["L2"];
 const beforeSkip = settings.mappings.L2;

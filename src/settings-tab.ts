@@ -201,6 +201,16 @@ export class MSTodoSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("已完成任务排到末尾")
+			.setDesc("同步时把勾选完成的任务移到笔记下方，未完成的保持在前。")
+			.addToggle((t) =>
+				t.setValue(this.plugin.settings.sortCompletedLast).onChange(async (v) => {
+					this.plugin.settings.sortCompletedLast = v;
+					await this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
 			.setName("自动同步间隔（分钟）")
 			.setDesc(
 				"每隔这么多分钟跑一次「同步全部已映射清单」：从 Microsoft To Do 拉取最新任务写进笔记。" +
