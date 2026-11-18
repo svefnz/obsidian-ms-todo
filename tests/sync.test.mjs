@@ -196,6 +196,22 @@ settings.sortCompletedLast = true;
 	assert.strictEqual(lines.length, 1, "duplicate tasks from API written once");
 }
 
+// 3c5) 没有 block id 的同名行被"认领"，不再末尾追加一条
+{
+	graph.tasks.L1 = [{ id: "t5", title: "交房租", status: "notStarted" }];
+	vault.files.set("Microsoft To Do/工作.md", "# 工作\n\n- [ ] 交房租\n");
+	await engine.syncAll();
+	const lines = vault.files.get("Microsoft To Do/工作.md").split("\n").filter((l) => l.startsWith("- ["));
+	assert.strictEqual(lines.length, 1, "no duplicate for untagged same-title line");
+	assert.ok(lines[0].includes("^ms-todo-"), "identity written onto the existing line");
+	await engine.syncAll();
+	assert.strictEqual(
+		vault.files.get("Microsoft To Do/工作.md").split("\n").filter((l) => l.startsWith("- [")).length,
+		1,
+		"still one line after another sync"
+	);
+}
+
 // 3d) 取消勾选的清单不同步
 settings.disabledListIds = ["L2"];
 const beforeSkip = settings.mappings.L2;
@@ -210,7 +226,7 @@ assert.deepStrictEqual(missing, [], "nothing missing");
 assert.deepStrictEqual(Object.values(settings.mappings).sort(), ["待办/To Do/买菜-清单.md", "待办/To Do/工作 2.md", "待办/To Do/工作.md"].sort());
 assert.ok(vault.files.has("待办/To Do/工作.md"), "file at new path");
 assert.ok(!vault.files.has("Microsoft To Do/工作.md"), "old path gone");
-assert.ok(vault.files.get("待办/To Do/工作.md").includes("写季度报告"), "content preserved");
+assert.ok(vault.files.get("待办/To Do/工作.md").includes("交房租"), "content preserved");
 assert.ok(!vault.folderObjs.has("Microsoft To Do"), "empty old folder removed");
 settings.syncFolder = "待办/To Do";
 

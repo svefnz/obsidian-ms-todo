@@ -181,6 +181,19 @@ export class SyncEngine {
 				if (seenTokens.has(parsed.taskId)) continue; // 重复行，丢掉
 				seenTokens.add(parsed.taskId);
 			}
+			// 没有 block id 的同名行（手工抄的、或旧格式被摘掉 id 的）：
+			// 直接把任务身份写到这行上，而不是在末尾再追加一条
+			if (parsed && !parsed.taskId) {
+				const same = tasksToWrite.find(
+					(t) => t.title === parsed.title && !matchedTaskIds.has(t.id)
+				);
+				if (same) {
+					matchedTaskIds.add(same.id);
+					seenTokens.add(blockIdFor(same.id).replace(/^ms-todo-/, ""));
+					newLines.push(taskToLine(same, parsed.indent));
+					continue;
+				}
+			}
 			if (parsed?.taskId && taskById.has(parsed.taskId)) {
 				const task = taskById.get(parsed.taskId)!;
 				matchedTaskIds.add(task.id);
