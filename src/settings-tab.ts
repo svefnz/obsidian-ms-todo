@@ -73,7 +73,12 @@ export class MSTodoSettingTab extends PluginSettingTab {
 				b
 					.setButtonText(this.plugin.settings.refreshToken ? "重新登录" : "登录")
 					.setCta()
-					.onClick(() => void this.plugin.signIn())
+					.onClick(async () => {
+						b.setButtonText("等待浏览器授权…").setDisabled(true);
+						await this.plugin.signIn();
+						// signIn 结束后重绘，让登录状态/按钮/同步按钮立刻反映结果
+						this.display();
+					})
 			)
 			.addButton((b) =>
 				b
