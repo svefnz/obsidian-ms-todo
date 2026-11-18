@@ -7,6 +7,7 @@ export interface SyncMapping {
 
 export interface MSTodoSettings extends Record<string, unknown> {
 	clientId: string;
+	tenant: string;
 	refreshToken?: string;
 	accessToken?: string;
 	tokenExpiry?: number;
@@ -19,6 +20,7 @@ export interface MSTodoSettings extends Record<string, unknown> {
 
 export const DEFAULT_SETTINGS: MSTodoSettings = {
 	clientId: "",
+	tenant: "common",
 	mappings: {},
 	hideCompleted: false,
 	autoSyncIntervalMinutes: 0,

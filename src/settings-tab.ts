@@ -52,6 +52,21 @@ export class MSTodoSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("租户（Tenant）")
+			.setDesc(
+				"common = 工作/学校账户 + 个人账户（Azure 应用需选择“任何组织目录中的账户和个人 Microsoft 账户”）；consumers = 仅个人 Microsoft 账户；也可填你的租户 ID 或域名（仅限单租户应用）。"
+			)
+			.addText((t) =>
+				t
+					.setPlaceholder("common")
+					.setValue(this.plugin.settings.tenant)
+					.onChange(async (v) => {
+						this.plugin.settings.tenant = v.trim() || "common";
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
 			.setName("登录状态")
 			.setDesc(this.plugin.settings.refreshToken ? "已登录 Microsoft 账号。" : "尚未登录。")
 			.addButton((b) =>

@@ -54,3 +54,11 @@ npm run typecheck    # 类型检查
 2. 命令面板执行 **BRAT: Add a beta plugin for testing**
 3. 输入 `svefnz/obsidian-ms-todo`
 4. 在第三方插件中启用 **Microsoft To Do 同步**
+
+## 常见错误
+
+| 现象 | 原因 | 解法 |
+| --- | --- | --- |
+| 浏览器出现 `unauthorized_client: The client does not exist or is not enabled for consumers` | 应用注册的「支持的账户类型」不含个人账户，而插件默认用 `common` 登录 | Azure 应用 → 身份验证 → 账户类型改为「任何组织目录中的账户和个人 Microsoft 账户」；或把插件设置里「租户」改为 `consumers`（仅个人账号）/ 你的租户 ID |
+| `AADSTS50011 redirect_uri mismatch` | Azure 没登记本插件的回环重定向 URI | Azure 应用 → 身份验证 → 添加平台「移动和桌面应用程序」→ 重定向 URI 填 `http://localhost:42813/ms-todo-auth` |
+| `本地端口 42813 已被占用` | 上一次登录窗口没关，回调服务仍在等 | 关掉浏览器标签稍等，或重启 Obsidian 再登录 |

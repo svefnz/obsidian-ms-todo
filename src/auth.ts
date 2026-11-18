@@ -8,13 +8,49 @@ export interface TokenResult {
 
 export interface AuthSettings {
 	clientId: string;
+	tenant?: string;
 	refreshToken?: string;
 	accessToken?: string;
 	tokenExpiry?: number;
 }
 
-const AUTHORITY = "https://login.microsoftonline.com/common/oauth2/v2.0";
+/**
+ * 权威终结点随租户变化：
+ *  - common：工作/学校 + 个人账号（要求应用注册支持这两种账户类型）
+ *  - consumers：仅个人 Microsoft 账户
+ *  - <租户ID或域名>：仅该组织
+ */
+export function authority(tenant: string): string {
+	const t = tenant || "common";
+	return `https://login.microsoftonline.com/${encodeURIComponent(t)}/oauth2/v2.0`;
+}
 const SCOPES = "Tasks.ReadWrite offline_access User.Read";
+
+/**
+ * 把 AAD 的英文错误翻译成用户能照做的中文提示。
+ * 只覆盖实际踩到的几类，其余原样返回。
+ */
+export function explainAuthError(text: string): string {
+	const code = /"error"\s*:\s*"([^"]+)"/.exec(text)?.[1] ?? "";
+	const detail = /"error_description"\s*:\s*"([^"]*)"/.exec(text)?.[1] ?? text;
+	const clean = detail.split("\r\n")[0].split("Trace ID")[0].trim();
+	if (code === "unauthorized_client" || code === "invalid_client") {
+		return (
+			"应用注册的「支持的账户类型」与登录账号不匹配。" +
+			"请到 Azure 应用 → 身份验证，把账户类型改为「任何组织目录中的账户和个人 Microsoft 账户」；" +
+			"若只想用个人账号，也可把本插件设置的租户改成 consumers。" +
+			`（原始信息：${clean}）`
+		);
+	}
+	if (/AADSTS50011|redirect_uri/i.test(text)) {
+		return (
+			"Azure 应用里没有登记本插件的重定向 URI。" +
+			"请在 Azure 应用 → 身份验证 → 添加平台「移动和桌面应用程序」，重定向 URI 填 " +
+			`http://localhost:${LOOPBACK_PORT}/ms-todo-auth。（原始信息：${clean}）`
+		);
+	}
+	return `授权码兑换失败：${clean}`;
+}
 
 /** 本地回环端口：Azure 对 http://localhost 的重定向 URI 会忽略端口差异 */
 const LOOPBACK_PORT = 42813;
@@ -56,7 +92,7 @@ export class AuthManager {
 			scope: SCOPES,
 		});
 		const res = await requestUrl({
-			url: `${AUTHORITY}/token`,
+			url: `${authority(this.settings.tenant ?? "common")}/token`,
 			method: "POST",
 			contentType: "application/x-www-form-urlencoded",
 			body: body.toString(),
@@ -80,54 +116,100 @@ export async function pkce(): Promise<{ verifier: string; challenge: string }> {
 	return { verifier, challenge: base64UrlEncode(new Uint8Array(digest)) };
 }
 
-export function buildAuthorizeUrl(clientId: string, challenge: string): string {
+export function buildAuthorizeUrl(
+	clientId: string,
+	challenge: string,
+	tenant = "common",
+	redirectUri = REDIRECT_URI
+): string {
 	const p = new URLSearchParams({
 		client_id: clientId,
 		response_type: "code",
-		redirect_uri: REDIRECT_URI,
+		redirect_uri: redirectUri,
 		response_mode: "query",
 		scope: SCOPES,
 		code_challenge: challenge,
 		code_challenge_method: "S256",
 		prompt: "select_account",
 	});
-	return `${AUTHORITY}/authorize?${p.toString()}`;
+	return `${authority(tenant)}/authorize?${p.toString()}`;
 }
 
-export async function exchangeCode(clientId: string, code: string, verifier: string): Promise<TokenResult> {
+export async function exchangeCode(
+	clientId: string,
+	code: string,
+	verifier: string,
+	tenant = "common",
+	redirectUri = REDIRECT_URI
+): Promise<TokenResult> {
 	const body = new URLSearchParams({
 		client_id: clientId,
 		grant_type: "authorization_code",
 		code,
-		redirect_uri: REDIRECT_URI,
+		redirect_uri: redirectUri,
 		code_verifier: verifier,
 		scope: SCOPES,
 	});
 	const res = await requestUrl({
-		url: `${AUTHORITY}/token`,
+		url: `${authority(tenant)}/token`,
 		method: "POST",
 		contentType: "application/x-www-form-urlencoded",
 		body: body.toString(),
 	});
 	if (res.status >= 400) {
-		new Notice(`Microsoft To Do 登录失败：${res.text}`, 10000);
-		throw new Error(`授权码兑换失败：${res.status} ${res.text}`);
+		const msg = explainAuthError(res.text);
+		new Notice(`Microsoft To Do 登录失败：${msg}`, 15000);
+		throw new Error(msg);
 	}
 	return res.json as TokenResult;
+}
+
+/** 当前活动的回调服务，重复登录时先关掉旧的，避免 EADDRINUSE */
+let activeServer: import("http").Server | null = null;
+
+export interface CallbackHandle {
+	/** 本次登录实际使用的重定向 URI（需在 Azure 中注册） */
+	redirectUri: string;
+	/** 收到浏览器回调后兑现 */
+	result: Promise<{ code?: string; error?: string }>;
+	/** 放弃登录，立刻释放端口 */
+	close: () => void;
 }
 
 /**
  * 启动一次性本地回调服务，等待 Microsoft 重定向带回授权码。
  * 收到后立即关闭服务器。
  */
-export function waitForCallback(timeoutMs = 5 * 60 * 1000): Promise<{ code?: string; error?: string }> {
+export function startCallbackServer(
+	timeoutMs = 5 * 60 * 1000,
+	port = LOOPBACK_PORT
+): Promise<CallbackHandle> {
 	// obsidian 桌面端可用 Node 内置模块
 	// eslint-disable-next-line @typescript-eslint/no-var-requires
 	const http = require("http") as typeof import("http");
+	const redirectUri = `http://localhost:${port}/ms-todo-auth`;
+	const path = "/ms-todo-auth";
+
+	if (activeServer) {
+		try {
+			activeServer.close();
+		} catch {
+			/* 忽略 */
+		}
+		activeServer = null;
+	}
+
 	return new Promise((resolve, reject) => {
+		let settle: (v: { code?: string; error?: string }) => void = () => {};
+		let fail: (e: Error) => void = () => {};
+		const result = new Promise<{ code?: string; error?: string }>((res, rej) => {
+			settle = res;
+			fail = rej;
+		});
+
 		const server = http.createServer((req, res) => {
-			const url = new URL(req.url ?? "/", `http://localhost:${LOOPBACK_PORT}`);
-			if (url.pathname !== "/ms-todo-auth") {
+			const url = new URL(req.url ?? "/", redirectUri);
+			if (url.pathname !== path) {
 				res.writeHead(404).end();
 				return;
 			}
@@ -141,24 +223,41 @@ export function waitForCallback(timeoutMs = 5 * 60 * 1000): Promise<{ code?: str
 				 <p>${code ? "可以关闭此页面，回到 Obsidian 继续。" : `${error} ${desc}`}</p></body>`
 			);
 			finish();
-			resolve({ code, error: code ? undefined : error ?? "unknown" });
+			settle({ code, error: code ? undefined : error ?? "unknown" });
 		});
+
 		const timer = setTimeout(() => {
 			finish();
-			reject(new Error("登录超时（5 分钟）。"));
+			fail(new Error("登录超时（5 分钟）。"));
 		}, timeoutMs);
+
 		let closed = false;
 		const finish = () => {
 			if (closed) return;
 			closed = true;
 			clearTimeout(timer);
 			server.close();
+			if (activeServer === server) activeServer = null;
 		};
+
 		server.on("error", (e) => {
 			finish();
-			reject(new Error(`本地回调服务启动失败：${(e as Error).message}`));
+			const err = new Error(
+				(e as NodeJS.ErrnoException).code === "EADDRINUSE"
+					? `本地端口 ${port} 已被占用（可能是上次登录窗口未关闭）。请稍后重试，或重启 Obsidian。`
+					: `本地回调服务启动失败：${(e as Error).message}`
+			);
+			reject(err);
+			fail(err);
 		});
-		server.listen(LOOPBACK_PORT, "127.0.0.1");
+
+		server.listen(port, "127.0.0.1", () => {
+			activeServer = server;
+			resolve({ redirectUri, result, close: finish });
+		});
+		result.catch(() => {
+			/* 由调用方处理 */
+		});
 	});
 }
 
